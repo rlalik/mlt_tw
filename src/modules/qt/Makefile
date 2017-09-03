@@ -47,6 +47,8 @@ endif
 
 LDFLAGS += $(QTLIBS) $(EXIFLIBS) $(KDELIBS)
 
+LDFLAGS += -ltypewriter
+
 SRCS := $(OBJS:.o=.c) $(CPPOBJS:.o=.cpp)
 
 all: 	$(TARGET)

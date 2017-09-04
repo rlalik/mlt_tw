@@ -392,9 +392,6 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
     PatternMap pattern_map;
     QDomNodeList patterns = title.elementsByTagName("pattern");
 
-    if (patterns.count())
-        mlt_properties_set_int( producer_props, "_animated", 1 );
-
     for ( int i = 0; i < patterns.count(); i++ )
     {
         node = patterns.item(i);
@@ -525,7 +522,21 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
 
                 if ( txtProperties.namedItem( "compatibility" ).isNull() ) {
                     // Workaround Qt5 crash in threaded drawing of QGraphicsTextItem, paint by ourselves
-                    DynamicTextItem *txt = new DynamicTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt(), pattern_map);
+
+                    PlainTextItem *txt = nullptr;
+                    QRegularExpression re("@{(\\w+)}@");
+                    QRegularExpressionMatchIterator i = re.globalMatch(text);
+
+                    if (i.hasNext())
+                    {
+                        if (patterns.count())
+                            mlt_properties_set_int( producer_props, "_animated", 1 );
+
+                        txt = new DynamicTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt(), pattern_map);
+                    } else {
+                        txt = new PlainTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt());
+                    }
+
                     if ( txtProperties.namedItem( "shadow" ).isNull() == false )
                     {
                         QStringList values = txtProperties.namedItem( "shadow" ).nodeValue().split(";");

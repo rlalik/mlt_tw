@@ -208,6 +208,7 @@ protected:
     void updateText(const QString & text, double width, double height)
     {
         m_boundingRect = QRectF(0, 0, width, height);
+        m_path = QPainterPath();
 
         QStringList lines = text.split('\n');
         double linePos = m_metrics.ascent();
@@ -265,12 +266,28 @@ public:
     {
     }
 
-    void renderFrame(QGraphicsScene *scene, int frame)
+    void renderFrame(QGraphicsScene *scene, mlt_position frame)
     {
         if (m_map.size() == 0)
             return;
 
-        QString new_text;
+        QString new_text = initial_text;
+
+        QRegularExpression re("@{(\\w+)}@");
+        QRegularExpressionMatchIterator i = re.globalMatch(new_text);
+        while (i.hasNext()) {
+            QRegularExpressionMatch match = i.next();
+            QString word = match.captured(1);
+
+            if (m_map.contains(word))
+            {
+                PatternText pt = m_map.value(word);
+                std::string str = pt.twtext.render(frame);
+                QString pat = QString("@{%1}@").arg(word);
+                new_text.replace(pat, str.c_str());
+            }
+        }
+
         QGraphicsTextItem *txt = scene->addText(new_text, m_font);
         QRectF br = txt->boundingRect();
         int boxWidth = br.width();
@@ -374,7 +391,10 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
 
     PatternMap pattern_map;
     QDomNodeList patterns = title.elementsByTagName("pattern");
-    printf("found n=%d patterns\n", patterns.count());
+
+    if (patterns.count())
+        mlt_properties_set_int( producer_props, "_animated", 1 );
+
     for ( int i = 0; i < patterns.count(); i++ )
     {
         node = patterns.item(i);
@@ -391,6 +411,7 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
         TypeWriter tw;
         tw.setFrameRate(fps);
         tw.setRawString(pattern_text.toStdString());
+        tw.parse();
         pt.twtext = tw;
         pt.cursor_visible = false;
         pt.cursor_blinking = false;
@@ -779,11 +800,12 @@ void drawKdenliveTitle( producer_ktitle self, mlt_frame frame, mlt_image_format 
         QList <QGraphicsItem *> items = scene->items();
         QGraphicsTextItem *titem = NULL;
         for (int i = 0; i < items.count(); i++) {
-            DynamicTextItem * ditem = static_cast <DynamicTextItem*> ( items.at( i ) );
+            DynamicTextItem * ditem = dynamic_cast <DynamicTextItem*> ( items.at( i ) );
 
-//             int f = producer_get_frame(producer, frame, 0); FIXME
+            mlt_position pos = mlt_frame_original_position(frame);
+
             if (ditem)
-                ditem->renderFrame(scene, 0);
+                ditem->renderFrame(scene, pos);
 
             titem = static_cast <QGraphicsTextItem*> ( items.at( i ) );
             if (titem && !titem->data( 0 ).isNull()) {

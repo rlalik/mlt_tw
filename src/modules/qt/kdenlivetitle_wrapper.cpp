@@ -243,6 +243,7 @@ private:
     int m_lineSpacing;
 };
 
+#ifdef HAVE_TYPEWRITER
 struct PatternText
 {
     int version;
@@ -303,6 +304,7 @@ private:
     QFont m_font;
     PatternMap m_map;
 };
+#endif
 
 QRectF stringToRect( const QString & s )
 {
@@ -382,12 +384,14 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
     mlt_properties_set_int( producer_props, "meta.media.width", originalWidth );
     mlt_properties_set_int( producer_props, "meta.media.height", originalHeight );
 
-    int fps = 25;
-    if ( title.hasAttribute( "fps" ) ) {
-        fps = title.attribute( "out" ).toInt();
-    }
 
     QDomNode node;
+
+#ifdef HAVE_TYPEWRITER
+    int fps = 25;
+    if ( title.hasAttribute( "fps" ) ) {
+        fps = title.attribute( "fps" ).toInt();
+    }
 
     PatternMap pattern_map;
     QDomNodeList patterns = title.elementsByTagName("pattern");
@@ -416,6 +420,7 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
 
         pattern_map.insert(pattern_name, pt);
     }
+#endif
 
     QDomNodeList items = title.elementsByTagName("item");
     for ( int i = 0; i < items.count(); i++ )
@@ -524,6 +529,7 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
                     // Workaround Qt5 crash in threaded drawing of QGraphicsTextItem, paint by ourselves
 
                     PlainTextItem *txt = nullptr;
+#ifdef HAVE_TYPEWRITER
                     QRegularExpression re("@{(\\w+)}@");
                     QRegularExpressionMatchIterator i = re.globalMatch(text);
 
@@ -534,9 +540,11 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
 
                         txt = new DynamicTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt(), pattern_map);
                     } else {
+#endif
                         txt = new PlainTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt());
+#ifdef HAVE_TYPEWRITER
                     }
-
+#endif
                     if ( txtProperties.namedItem( "shadow" ).isNull() == false )
                     {
                         QStringList values = txtProperties.namedItem( "shadow" ).nodeValue().split(";");
@@ -810,14 +818,14 @@ void drawKdenliveTitle( producer_ktitle self, mlt_frame frame, mlt_image_format 
         // Effects
         QList <QGraphicsItem *> items = scene->items();
         QGraphicsTextItem *titem = NULL;
+
         for (int i = 0; i < items.count(); i++) {
+#ifdef HAVE_TYPEWRITER
             DynamicTextItem * ditem = dynamic_cast <DynamicTextItem*> ( items.at( i ) );
-
             mlt_position pos = mlt_frame_original_position(frame);
-
             if (ditem)
                 ditem->renderFrame(scene, pos);
-
+#endif
             titem = static_cast <QGraphicsTextItem*> ( items.at( i ) );
             if (titem && !titem->data( 0 ).isNull()) {
                 QStringList params = titem->data( 0 ).toStringList();

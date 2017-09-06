@@ -41,6 +41,8 @@
 #include <QWidget>
 #include <framework/mlt_log.h>
 
+#include <typewriter.h>
+
 #if QT_VERSION >= 0x040600
 #include <QGraphicsEffect>
 #include <QGraphicsBlurEffect>
@@ -145,34 +147,16 @@ void blur( QImage& image, int radius )
 class PlainTextItem: public QGraphicsItem
 {
 public:
-    PlainTextItem(QString text, QFont font, double width, double height, QBrush brush, QColor outlineColor, double outline, int align, int lineSpacing)
+    PlainTextItem(QString text, QFont font, double width, double height, QBrush brush, QColor outlineColor, double outline, int align, int lineSpacing) : m_font(font), m_metrics(font), m_align(align)
     {
         m_boundingRect = QRectF(0, 0, width, height);
         m_brush = brush;
         m_outline = outline;
         m_pen = QPen(outlineColor);
         m_pen.setWidthF(outline);
-        QFontMetrics metrics(font);
-        lineSpacing += metrics.lineSpacing();
+        m_lineSpacing = lineSpacing + m_metrics.lineSpacing();
 
-        // Calculate line width
-        QStringList lines = text.split('\n');
-        double linePos = metrics.ascent();
-        foreach(const QString &line, lines)
-        {
-            QPainterPath linePath;
-            linePath.addText(0, linePos, font, line);
-            linePos += lineSpacing;
-            if ( align == Qt::AlignHCenter )
-            {
-                double offset = (width - metrics.width(line)) / 2;
-                linePath.translate(offset, 0);
-            } else if ( align == Qt::AlignRight ) {
-                double offset = (width - metrics.width(line));
-                linePath.translate(offset, 0);
-            }
-            m_path = m_path.united(linePath);
-        }
+        updateText(text, width, height);
     }
 
     virtual QRectF boundingRect() const
@@ -220,6 +204,31 @@ public:
         blur( m_shadow, blurRadius );
     }
 
+protected:
+    void updateText(const QString & text, double width, double height)
+    {
+        m_boundingRect = QRectF(0, 0, width, height);
+        m_path = QPainterPath();
+
+        QStringList lines = text.split('\n');
+        double linePos = m_metrics.ascent();
+        foreach(const QString &line, lines)
+        {
+            QPainterPath linePath;
+            linePath.addText(0, linePos, m_font, line);
+            linePos += m_lineSpacing;
+            if ( m_align == Qt::AlignHCenter )
+            {
+                double offset = (width - m_metrics.width(line)) / 2;
+                linePath.translate(offset, 0);
+            } else if ( m_align == Qt::AlignRight ) {
+                double offset = (width - m_metrics.width(line));
+                linePath.translate(offset, 0);
+            }
+            m_path = m_path.united(linePath);
+        }
+    }
+
 private:
     QRectF m_boundingRect;
     QImage m_shadow;
@@ -228,7 +237,74 @@ private:
     QBrush m_brush;
     QPen m_pen;
     double m_outline;
+    QFont m_font;
+    QFontMetrics m_metrics;
+    int m_align;
+    int m_lineSpacing;
 };
+
+#ifdef HAVE_TYPEWRITER
+struct PatternText
+{
+    int version;
+    QString pattern;
+    TypeWriter twtext;
+    bool cursor_visible;
+    bool cursor_blinking;
+    int cursor_type;
+};
+
+typedef
+    QMap<QString, PatternText>
+        PatternMap;
+
+class DynamicTextItem : public PlainTextItem
+{
+public:
+    DynamicTextItem(QString text, QFont font, double width, double height, QBrush brush, QColor outlineColor, double outline, int align, int lineSpacing, PatternMap map) :
+    PlainTextItem(text, font, width, height, brush, outlineColor, outline, align, lineSpacing),
+    initial_text(text), m_font(font), m_map(map)
+    {
+    }
+
+    void renderFrame(QGraphicsScene *scene, mlt_position frame)
+    {
+        if (m_map.size() == 0)
+            return;
+
+        QString new_text = initial_text;
+
+        QRegularExpression re("@{(\\w+)}@");
+        QRegularExpressionMatchIterator i = re.globalMatch(new_text);
+        while (i.hasNext()) {
+            QRegularExpressionMatch match = i.next();
+            QString word = match.captured(1);
+
+            if (m_map.contains(word))
+            {
+                PatternText pt = m_map.value(word);
+                std::string str = pt.twtext.render(frame);
+                QString pat = QString("@{%1}@").arg(word);
+                new_text.replace(pat, str.c_str());
+            }
+        }
+
+        QGraphicsTextItem *txt = scene->addText(new_text, m_font);
+        QRectF br = txt->boundingRect();
+        int boxWidth = br.width();
+        int boxHeight = br.height();
+        scene->removeItem(txt);
+        delete txt;
+
+        updateText(new_text, boxWidth, boxHeight);
+    }
+
+private:
+    QString initial_text;
+    QFont m_font;
+    PatternMap m_map;
+};
+#endif
 
 QRectF stringToRect( const QString & s )
 {
@@ -308,7 +384,44 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
     mlt_properties_set_int( producer_props, "meta.media.width", originalWidth );
     mlt_properties_set_int( producer_props, "meta.media.height", originalHeight );
 
+
     QDomNode node;
+
+#ifdef HAVE_TYPEWRITER
+    int fps = 25;
+    if ( title.hasAttribute( "fps" ) ) {
+        fps = title.attribute( "fps" ).toInt();
+    }
+
+    PatternMap pattern_map;
+    QDomNodeList patterns = title.elementsByTagName("pattern");
+
+    for ( int i = 0; i < patterns.count(); i++ )
+    {
+        node = patterns.item(i);
+        QDomNamedNodeMap nodeAttr = node.attributes();
+        QString pattern_name = nodeAttr.namedItem("name").nodeValue();
+        if (pattern_name.length() == 0)
+            continue;
+
+        QString pattern_text = node.namedItem("text").firstChild().nodeValue();
+
+        PatternText pt;
+        pt.version = 1;
+        pt.pattern = pattern_name;
+        TypeWriter tw;
+        tw.setFrameRate(fps);
+        tw.setRawString(pattern_text.toStdString());
+        tw.parse();
+        pt.twtext = tw;
+        pt.cursor_visible = false;
+        pt.cursor_blinking = false;
+        pt.cursor_type = 0;
+
+        pattern_map.insert(pattern_name, pt);
+    }
+#endif
+
     QDomNodeList items = title.elementsByTagName("item");
     for ( int i = 0; i < items.count(); i++ )
     {
@@ -414,7 +527,24 @@ void loadFromXml( producer_ktitle self, QGraphicsScene *scene, const char *templ
 
                 if ( txtProperties.namedItem( "compatibility" ).isNull() ) {
                     // Workaround Qt5 crash in threaded drawing of QGraphicsTextItem, paint by ourselves
-                    PlainTextItem *txt = new PlainTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt());
+
+                    PlainTextItem *txt = nullptr;
+#ifdef HAVE_TYPEWRITER
+                    QRegularExpression re("@{(\\w+)}@");
+                    QRegularExpressionMatchIterator i = re.globalMatch(text);
+
+                    if (i.hasNext())
+                    {
+                        if (patterns.count())
+                            mlt_properties_set_int( producer_props, "_animated", 1 );
+
+                        txt = new DynamicTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt(), pattern_map);
+                    } else {
+#endif
+                        txt = new PlainTextItem(text, font, boxWidth, boxHeight, brush, outlineColor, txtProperties.namedItem("font-outline").nodeValue().toDouble(), align, txtProperties.namedItem("line-spacing").nodeValue().toInt());
+#ifdef HAVE_TYPEWRITER
+                    }
+#endif
                     if ( txtProperties.namedItem( "shadow" ).isNull() == false )
                     {
                         QStringList values = txtProperties.namedItem( "shadow" ).nodeValue().split(";");
@@ -688,7 +818,14 @@ void drawKdenliveTitle( producer_ktitle self, mlt_frame frame, mlt_image_format 
         // Effects
         QList <QGraphicsItem *> items = scene->items();
         QGraphicsTextItem *titem = NULL;
+
         for (int i = 0; i < items.count(); i++) {
+#ifdef HAVE_TYPEWRITER
+            DynamicTextItem * ditem = dynamic_cast <DynamicTextItem*> ( items.at( i ) );
+            mlt_position pos = mlt_frame_original_position(frame);
+            if (ditem)
+                ditem->renderFrame(scene, pos);
+#endif
             titem = static_cast <QGraphicsTextItem*> ( items.at( i ) );
             if (titem && !titem->data( 0 ).isNull()) {
                 QStringList params = titem->data( 0 ).toStringList();

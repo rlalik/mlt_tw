@@ -45,7 +45,7 @@ ifneq (, $(shell $(CXX) --version | grep -is g++))
     CXXFLAGS += --std=c++11
 endif
 
-LDFLAGS += $(QTLIBS) $(EXIFLIBS) $(KDELIBS)
+LDFLAGS += $(QTLIBS) $(EXIFLIBS) $(KDELIBS) $(TWLDFLAGS)
 
 SRCS := $(OBJS:.o=.c) $(CPPOBJS:.o=.cpp)
 

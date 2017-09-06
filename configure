@@ -109,7 +109,7 @@ build_config()
 		echo "SHFLAGS=-shared"
 		echo "LIBDL=-ldl"
 		echo "RDYNAMIC=-rdynamic"
-		echo "LDFLAGS+=-Wl,--no-undefined -Wl,--as-needed \$(TWLDFLAGS)"
+		echo "LDFLAGS+=-Wl,--no-undefined -Wl,--as-needed"
 		;;
 		FreeBSD)
 		[ "$optimisations" = "true" ] &&

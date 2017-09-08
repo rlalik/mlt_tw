@@ -174,6 +174,8 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
 
     data->init = 1;
 
+    free(buff);
+
     return 1;
 }
 
@@ -203,21 +205,23 @@ static int update_producer(mlt_frame frame, mlt_properties frame_p, twdata * dat
         return 1;
     }
     int len = data->idx_end - data->idx_beg;
-    char * buff1 = malloc(len);
-    char * buff2 = malloc(strlen(data->data));
-    memset(buff2, 0, strlen(data->data));
+    char * buff_render = malloc(len);
 
-    tw_render(&data->tw, pos, buff1, len);
-    int len_buff = strlen(buff1);
+    int len_data = strlen(data->data);
+    char * buff_data = malloc(len_data);
+    memset(buff_data, 0, len_data);
 
-    strncpy(buff2, data->data, data->idx_beg);
-    strncpy(buff2 + data->idx_beg, buff1, len_buff);
-    strcpy(buff2 + data->idx_beg + len_buff, data->data + data->idx_end);
+    tw_render(&data->tw, pos, buff_render, len);
+    int len_render = strlen(buff_render);
 
-    mlt_properties_set( producer_properties, data->data_field, buff2 );
+    strncpy(buff_data, data->data, data->idx_beg);
+    strncpy(buff_data + data->idx_beg, buff_render, len_render);
+    strcpy(buff_data + data->idx_beg + len_render, data->data + data->idx_end);
 
-    free(buff2);
-    free(buff1);
+    mlt_properties_set( producer_properties, data->data_field, buff_data );
+
+    free(buff_data);
+    free(buff_render);
 
     data->current_frame = pos;
 
@@ -236,9 +240,7 @@ static int filter_get_image( mlt_frame frame, uint8_t **image, mlt_image_format 
 
     int res = get_producer_data(properties, frame_properties, data);
     if ( res == 0)
-    {
         return mlt_frame_get_image( frame, image, format, width, height, 1 );
-    }
 
     update_producer(frame, frame_properties, data, 0);
 
@@ -253,7 +255,6 @@ static mlt_frame filter_process( mlt_filter filter, mlt_frame frame )
 {
 	mlt_frame_push_service( frame, filter );
 	mlt_frame_push_get_image( frame, filter_get_image );
-
 	return frame;
 }
 
@@ -272,4 +273,3 @@ mlt_filter filter_typewriter_init( mlt_profile profile, mlt_service_type type, c
 	}
 	return filter;
 }
-

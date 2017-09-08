@@ -152,7 +152,8 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
         return 0;
 
     int len = i_end - i_beg - len_beg - len_end;    // length of pattern w/o markers
-    char * buff = malloc(len + 1);
+    char * buff = malloc(len);
+    memset(buff, 0, len);
     strncpy(buff, d + i_beg + len_beg, len);
 
     tw_init(&data->tw);
@@ -204,6 +205,7 @@ static int update_producer(mlt_frame frame, mlt_properties frame_p, twdata * dat
     int len = data->idx_end - data->idx_beg;
     char * buff1 = malloc(len);
     char * buff2 = malloc(strlen(data->data));
+    memset(buff2, 0, strlen(data->data));
 
     tw_render(&data->tw, pos, buff1, len);
     int len_buff = strlen(buff1);

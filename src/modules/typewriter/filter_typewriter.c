@@ -31,20 +31,83 @@
 #include <typewriter.h>
 
 typedef struct {
-    TypeWriter tw;          // holds TypeWriter object
-    int init;               // 1 if initialized
+    TypeWriter * tw;          // holds TypeWriter object
     int idx_beg;            // index of begin of the pattern
     int idx_end;            // index of the end
-    char * data_field;      // data field name
-    char * data;            // data field content
-    int current_frame;      // currently parsed frame
-    int producer_type;      // 1 - kdenlivetitle
-    mlt_producer producer;  // hold producer pointer
 } twdata;
 
-static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, twdata * data)
+typedef struct {
+    twdata ** arr;
+    int size;
+    int limit;
+    int init;               // 1 if initialized
+
+    int current_frame;      // currently parsed frame
+
+    char * data_field;      // data field name
+    char * data;            // data field content
+
+    int producer_type;      // 1 - kdenlivetitle
+    mlt_producer producer;  // hold producer pointer
+} twcont;
+
+twcont * twcont_clean(twcont* cont)
 {
-    if (data == NULL)
+    for (int i = 0; i < cont->size; ++i)
+    {
+        twdata * data = cont->arr[i];
+        tw_delete(data->tw);
+        data->tw = NULL;
+        free(data);
+    }
+
+    free (cont->arr);
+    free (cont->data_field);
+    free (cont->data);
+
+    cont->arr = NULL;
+    cont->size = 0;
+    cont->limit = 0;
+    cont->init = 0;
+    cont->current_frame = -1;
+    cont->data_field = NULL;
+    cont->data = NULL;
+    cont->producer_type = 0;
+    cont->producer = NULL;
+    return cont;
+}
+
+twcont * twcont_init()
+{
+    twcont* cont = (twcont*)calloc( 1, sizeof(twcont) );
+    twcont_clean(cont);
+    return cont;
+}
+
+void twcont_resize(twcont * twc) {
+    if (twc->size < twc->limit)
+        return;
+
+    twc->limit += 10;
+    twdata ** arr2 = (twdata**) calloc( twc->limit, sizeof(twdata*) );
+    memset(arr2, 0, twc->limit * sizeof(twdata*));
+    memcpy(arr2, twc->arr, twc->size * sizeof(twdata*));
+    free(twc->arr);
+    twc->arr = arr2;
+}
+
+twdata * twdata_init()
+{
+    twdata * data = (twdata*) calloc( 1, sizeof(twdata) );
+    data->tw = tw_init();
+    data->idx_beg = -1;
+    data->idx_end = -1;
+    return data;
+}
+
+static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, twcont * cont)
+{
+    if (cont == NULL)
         return 0;
 
     char data_field[200];
@@ -53,35 +116,41 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
     mlt_producer producer = NULL;
     mlt_properties producer_properties = NULL;
 
-    /* Obtain the producer for this frame */
-    producer_ktitle ktitle = mlt_properties_get_data( frame_p, "producer_kdenlivetitle", NULL );
-
-    if (ktitle != NULL)
+    // fake loop, break after one loop
+    while (1)
     {
-        /* Obtain properties of producer */
-        producer = &ktitle->parent;
-        producer_properties = MLT_PRODUCER_PROPERTIES( producer );
-
-        if (producer == NULL || producer_properties == NULL)
-            return 0;
-
-        strcpy(data_field, "xmldata");
-        d = mlt_properties_get( producer_properties, data_field );
-
-        int res = -1;
-        if (data->data)
-            res = strcmp(d, data->data);
-
-        if (res != 0)
+        /* Try with kdenlivetitle */
+        producer_ktitle kt = mlt_properties_get_data( frame_p, "producer_kdenlivetitle", NULL );
+        if (kt != NULL)
         {
-            data->init = 0;
+            /* Obtain properties of producer */
+            producer = &kt->parent;
+            producer_properties = MLT_PRODUCER_PROPERTIES( producer );
+
+            if (producer == NULL || producer_properties == NULL)
+                return 0;
+
+            strcpy(data_field, "xmldata");
+            d = mlt_properties_get( producer_properties, data_field );
+
+            int res = -1;
+            if (cont->data && d)
+                res = strcmp(cont->data, d);
+
+            if (res != 0)
+            {
+                twcont_clean(cont);
+            }
+
+            cont->producer_type = 1;
+            cont->producer = producer;
+            break;
         }
 
-        data->producer_type = 1;
-        data->producer = producer;
+        break;
     }
 
-    if (data->init != 0)
+    if (cont->init != 0)
         return 1;
 
     char * str_beg = mlt_properties_get( filter_p, "beg" );
@@ -90,106 +159,113 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
     if (d == NULL)
         return 0;
 
-    const char * idx = d;
+    const char * c = d;
     int len_beg = strlen(str_beg);
     int len_end = strlen(str_end);
     int i = 0;
     int i_beg = -1;
     int i_end = -1;
 
-    while (*idx != '\0')
+    while (*c != '\0')
     {
         // check first character
-        if (*idx != str_beg[0])
+        if (*c != str_beg[0])
         {
             ++i;
-            ++idx;
+            ++c;
             continue;
         }
 
         // check full pattern
-        if (strncmp(str_beg, idx, len_beg) != 0)
+        if (strncmp(str_beg, c, len_beg) != 0)
         {
             ++i;
-            ++idx;
+            ++c;
             continue;
         }
 
         i_beg = i;
 
         i += len_beg;
-        idx += len_beg;
+        c += len_beg;
 
-        while (*idx != '\0')
+        while (*c != '\0')
         {
             // check first character
-            if (*idx != str_end[0])
+            if (*c != str_end[0])
             {
                 ++i;
-                ++idx;
+                ++c;
                 continue;
             }
 
             // check full pattern
-            if (strncmp(str_end, idx, len_end) != 0)
+            if (strncmp(str_end, c, len_end) != 0)
             {
                 ++i;
-                ++idx;
+                ++c;
                 continue;
             }
 
             i += len_end;
-            idx += len_end;
+            c += len_end;
 
             i_end = i;
 
             break;
         }
-        break;
+
+        if (i_beg == -1 || i_end == -1)
+            break;
+
+        twdata * data = twdata_init();
+
+        int len = i_end - i_beg - len_beg - len_end;    // length of pattern w/o markers
+        char * buff = malloc(len+1);
+        memset(buff, 0, len+1);
+        strncpy(buff, d + i_beg + len_beg, len);
+
+        tw_setRawString(data->tw, buff);
+
+        /*int res =*/ tw_parse(data->tw);
+
+        data->idx_beg = i_beg;
+        data->idx_end = i_end;
+
+        twcont_resize(cont);
+        cont->arr[cont->size] = data;
+        ++cont->size;
+
+        free(buff);
+
+        i_beg = -1;
+        i_end = -1;
     }
 
-    if (i_beg == -1 || i_end == -1)
-        return 0;
+    if (cont->data_field) free(cont->data_field);
+    cont->data_field = malloc(strlen(data_field)+1);
+    strcpy(cont->data_field, data_field);
 
-    int len = i_end - i_beg - len_beg - len_end;    // length of pattern w/o markers
-    char * buff = malloc(len);
-    memset(buff, 0, len);
-    strncpy(buff, d + i_beg + len_beg, len);
+    if (cont->data) free(cont->data);
+    cont->data = malloc(strlen(d)+1);
+    strcpy(cont->data, d);
 
-    tw_init(&data->tw);
-    tw_setRawString(&data->tw, buff);
-    /*int res =*/ tw_parse(&data->tw);
-
-    if (data->data_field) free(data->data_field);
-    data->data_field = malloc(strlen(data_field));
-    strcpy(data->data_field, data_field);
-
-    if (data->data) free(data->data);
-    data->data = malloc(strlen(d));
-    strcpy(data->data, d);
-
-    data->idx_beg = i_beg;
-    data->idx_end = i_end;
-    data->current_frame = -1;
-
-    data->init = 1;
-
-    free(buff);
+    cont->init = 1;
 
     return 1;
 }
 
-static int update_producer(mlt_frame frame, mlt_properties frame_p, twdata * data, int restore)
+static int update_producer(mlt_frame frame, mlt_properties frame_p, twcont * cont, int restore)
 {
-    if (data->init == 0)
+    if (cont->init == 0)
         return 0;
 
-    mlt_position pos = mlt_frame_original_position(frame);
+    mlt_position pos = mlt_frame_get_position( frame );
 
     mlt_properties producer_properties = NULL;
-    if (data->producer_type == 1)
+    if (cont->producer_type == 1)
     {
-        producer_properties = MLT_PRODUCER_PROPERTIES( data->producer );
+        producer_properties = MLT_PRODUCER_PROPERTIES( cont->producer );
         if (restore)
             mlt_properties_set_int( producer_properties, "force_reload", 0 );
         else
@@ -201,75 +277,92 @@ static int update_producer(mlt_frame frame, mlt_properties frame_p, twdata * dat
 
     if (restore == 1)
     {
-        mlt_properties_set( producer_properties, data->data_field, data->data );
+        mlt_properties_set( producer_properties, cont->data_field, cont->data );
         return 1;
     }
-    int len = data->idx_end - data->idx_beg;
-    char * buff_render = malloc(len);
 
-    int len_data = strlen(data->data);
-    char * buff_data = malloc(len_data);
-    memset(buff_data, 0, len_data);
+    int len_data = strlen(cont->data);
+    char * buff_data = malloc(len_data+1);
+    if (!buff_data)
+    {
+        printf("Cannot allocate memory, exiting\n");
+        exit(0);
+    }
+    strcpy(buff_data, cont->data);
 
-    tw_render(&data->tw, pos, buff_render, len);
-    int len_render = strlen(buff_render);
+    for (int i = cont->size - 1; i >= 0; --i)
+    {
+        twdata * data = cont->arr[i];
+        int len = data->idx_end - data->idx_beg;
+        char * buff_render = malloc(len+1);
+        memset(buff_render, 0, len+1);
+        tw_render(data->tw, pos, buff_render, len);
+        int len_render = strlen(buff_render);
 
-    strncpy(buff_data, data->data, data->idx_beg);
-    strncpy(buff_data + data->idx_beg, buff_render, len_render);
-    strcpy(buff_data + data->idx_beg + len_render, data->data + data->idx_end);
+        char * tmp_buff = malloc(len_data+1);
+        strcpy(tmp_buff, buff_data);
+        strncpy(buff_data + data->idx_beg, buff_render, len_render);
+        strcpy(buff_data + data->idx_beg + len_render, tmp_buff + data->idx_end);
+        free(tmp_buff);
 
-    mlt_properties_set( producer_properties, data->data_field, buff_data );
+        free(buff_render);
+    }
+    mlt_properties_set( producer_properties, cont->data_field, buff_data );
 
     free(buff_data);
-    free(buff_render);
 
-    data->current_frame = pos;
+    cont->current_frame = pos;
 
     return 1;
 }
 
 static int filter_get_image( mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height, int writable )
 {
-	int error = 0;
+    int error = 0;
     mlt_filter filter = (mlt_filter) mlt_frame_pop_service( frame );
-	mlt_properties frame_properties = MLT_FRAME_PROPERTIES( frame );
+    mlt_properties frame_properties = MLT_FRAME_PROPERTIES( frame );
 
     mlt_properties properties = MLT_FILTER_PROPERTIES( filter );
 
-    twdata * data = (twdata*) filter->child;
+    twcont * cont = (twcont*) filter->child;
 
-    int res = get_producer_data(properties, frame_properties, data);
+    int res = get_producer_data(properties, frame_properties, cont);
     if ( res == 0)
         return mlt_frame_get_image( frame, image, format, width, height, 1 );
 
-    update_producer(frame, frame_properties, data, 0);
+    update_producer(frame, frame_properties, cont, 0);
 
-	error = mlt_frame_get_image( frame, image, format, width, height, 1 );
+    error = mlt_frame_get_image( frame, image, format, width, height, 1 );
 
-    update_producer(frame, frame_properties, data, 1);
+    update_producer(frame, frame_properties, cont, 1);
 
     return error;
 }
 
 static mlt_frame filter_process( mlt_filter filter, mlt_frame frame )
 {
-	mlt_frame_push_service( frame, filter );
-	mlt_frame_push_get_image( frame, filter_get_image );
-	return frame;
+    mlt_frame_push_service( frame, filter );
+    mlt_frame_push_get_image( frame, filter_get_image );
+    return frame;
+}
+
+static void filter_close( mlt_filter filter)
+{
+    twcont * cont = filter->child;
+
+    twcont_clean(cont);
 }
 
 mlt_filter filter_typewriter_init( mlt_profile profile, mlt_service_type type, const char *id, char *arg )
 {
-	mlt_filter filter = mlt_filter_new( );
-	twdata* data = (twdata*)calloc( 1, sizeof(twdata) );
-    data->init = 0;
-    data->data = NULL;
-    data->data_field = NULL;
+    mlt_filter filter = mlt_filter_new( );
+    twcont* cont = twcont_init();
 
-	if ( filter != NULL && data != NULL)
-	{
-		filter->process = filter_process;
-        filter->child = data;
-	}
-	return filter;
+    if ( filter != NULL && cont != NULL)
+    {
+        filter->process = filter_process;
+        filter->child = cont;
+        filter->close = filter_close;
+    }
+    return filter;
 }

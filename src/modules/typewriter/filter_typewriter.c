@@ -28,7 +28,7 @@
 #include <math.h>
 
 #include "../qt/kdenlivetitle_wrapper.h"
-#include <typewriter.h>
+#include "typewriter.h"
 
 typedef struct {
     TypeWriter * tw;          // holds TypeWriter object

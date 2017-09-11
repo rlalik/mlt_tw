@@ -46,6 +46,8 @@ typedef struct {
 
     char * data_field;      // data field name
     char * data;            // data field content
+    char * sbeg;            // begin marker
+    char * send;            // end marker
 
     int producer_type;      // 1 - kdenlivetitle
     mlt_producer producer;  // hold producer pointer
@@ -64,6 +66,8 @@ twcont * twcont_clean(twcont* cont)
     free (cont->arr);
     free (cont->data_field);
     free (cont->data);
+    free (cont->sbeg);
+    free (cont->send);
 
     cont->arr = NULL;
     cont->size = 0;
@@ -72,6 +76,8 @@ twcont * twcont_clean(twcont* cont)
     cont->current_frame = -1;
     cont->data_field = NULL;
     cont->data = NULL;
+    cont->sbeg = NULL;
+    cont->send = NULL;
     cont->producer_type = 0;
     cont->producer = NULL;
     return cont;
@@ -112,6 +118,8 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
 
     char data_field[200];
     char * d = NULL;
+    char * str_beg = NULL;
+    char * str_end = NULL;
 
     mlt_producer producer = NULL;
     mlt_properties producer_properties = NULL;
@@ -132,12 +140,22 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
 
             strcpy(data_field, "xmldata");
             d = mlt_properties_get( producer_properties, data_field );
+            str_beg = mlt_properties_get( filter_p, "beg" );
+            str_end = mlt_properties_get( filter_p, "end" );
 
-            int res = -1;
+            int res_d = -1;
             if (cont->data && d)
-                res = strcmp(cont->data, d);
+                res_d = strcmp(cont->data, d);
 
-            if (res != 0)
+            int res_sb = -1;
+            if (cont->sbeg && str_beg)
+                res_sb = strcmp(cont->sbeg, str_beg);
+
+            int res_se = -1;
+            if (cont->send && str_end)
+                res_se = strcmp(cont->send, str_end);
+
+            if ((res_d != 0) || (res_sb != 0) || (res_se != 0))
             {
                 twcont_clean(cont);
             }
@@ -152,9 +170,6 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
 
     if (cont->init != 0)
         return 1;
-
-    char * str_beg = mlt_properties_get( filter_p, "beg" );
-    char * str_end = mlt_properties_get( filter_p, "end" );
 
     if (d == NULL)
         return 0;
@@ -215,26 +230,41 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
             break;
         }
 
+        int len = 0;
+        char * buff = NULL;
         if (i_beg == -1 || i_end == -1)
-            break;
+        {
+            len = 0;
+            buff = malloc(len+1);
+            memset(buff, 0, len+1);
+        }
+        else
+        {
+            len = i_end - i_beg - len_beg - len_end;    // length of pattern w/o markers
+            buff = malloc(len+1);
+            memset(buff, 0, len+1);
+            strncpy(buff, d + i_beg + len_beg, len);
 
-        twdata * data = twdata_init();
+            twdata * data = twdata_init();
+            tw_setRawString(data->tw, buff);
 
-        int len = i_end - i_beg - len_beg - len_end;    // length of pattern w/o markers
-        char * buff = malloc(len+1);
-        memset(buff, 0, len+1);
-        strncpy(buff, d + i_beg + len_beg, len);
+            /*int res =*/ tw_parse(data->tw);
 
-        tw_setRawString(data->tw, buff);
+            data->idx_beg = i_beg;
+            data->idx_end = i_end;
 
-        /*int res =*/ tw_parse(data->tw);
+            twcont_resize(cont);
+            cont->arr[cont->size] = data;
+            ++cont->size;
+        }
 
-        data->idx_beg = i_beg;
-        data->idx_end = i_end;
+        cont->sbeg = malloc(len_beg+1);
+        cont->send = malloc(len_end+1);
+        memset(cont->sbeg, 0, len_beg+1);
+        memset(cont->send, 0, len_end+1);
 
-        twcont_resize(cont);
-        cont->arr[cont->size] = data;
-        ++cont->size;
+        strcpy(cont->sbeg, str_beg);
+        strcpy(cont->send, str_end);
 
         free(buff);
 

@@ -29,7 +29,9 @@
 
 using namespace std;
 
-TypeWriter::TypeWriter() : frame_rate(25), last_used_idx(-1)
+std::string null_string;
+
+TypeWriter::TypeWriter() : frame_rate(25), parsing_err(0), last_used_idx(-1)
 {
 }
 
@@ -42,27 +44,39 @@ void TypeWriter::clear()
     frames.clear();
 }
 
-void TypeWriter::setRawString(const std::string& str)
+void TypeWriter::setPattern(const std::string& str)
 {
     raw_string = str;
     frames.reserve(raw_string.length());
 }
 
-bool TypeWriter::parse()
+int TypeWriter::parse()
 {
     clear();
 
     int start_frame = 0;
-    int ret = parseString(raw_string, start_frame);
-    if (ret < 0)
-    {
-        fprintf(stderr, "Parsing error:\n%.*s\n", -ret-1, raw_string.c_str());
-        fprintf(stderr, "%*c%c\n", -ret-1, ' ', '^');
-        return false;
-    }
-
-    return true;
+    parsing_err = parseString(raw_string, start_frame);
+    return parsing_err;
 }
+
+void TypeWriter::printParseResult()
+{
+    if (parsing_err < 0)
+    {
+        fprintf(stderr, "Parsing error:\n%.*s\n", -parsing_err-1, raw_string.c_str());
+        fprintf(stderr, "%*c%c\n", -parsing_err-2, ' ', '^');
+    }
+    else
+    {
+        printf("Parsing OK:  frames=%u  strings=%ld\n", count(), frames.size());
+    }
+}
+
+uint TypeWriter::count() const
+{
+    return frames.back().frame;
+}
+
 
 uint TypeWriter::getOrInsertFrame(uint frame)
 {
@@ -108,14 +122,14 @@ void TypeWriter::insertBypass(uint frame)
     addBypass(n);
 }
 
-std::string TypeWriter::render(uint frame)
+const std::string & TypeWriter::render(uint frame)
 {
     uint n = frames.size();
     if (!n)
-        return std::string();
+        return null_string;
 
     if (last_used_idx == -1)
-        ++last_used_idx;
+        last_used_idx = 0;
 
     // start with current frame
     Frame f = frames[last_used_idx];
@@ -125,7 +139,7 @@ std::string TypeWriter::render(uint frame)
         last_used_idx = 0;
 
     if (frames[last_used_idx].frame > frame)
-        return std::string();
+        return null_string;
 
     for (; last_used_idx < (int)n-1; ++last_used_idx)
     {
@@ -157,7 +171,7 @@ void TypeWriter::addBypass(uint idx)
 
     while (true)
     {
-        if (frames[pidx].bypass >= 0)
+        if (frames[pidx].bypass != -2)
         {
             pidx = frames[pidx].bypass;
         }
@@ -167,7 +181,6 @@ void TypeWriter::addBypass(uint idx)
             break;
         }
     }
-
     frames[idx].bypass = pidx;
 
     if (frames[idx].bypass >= 0)

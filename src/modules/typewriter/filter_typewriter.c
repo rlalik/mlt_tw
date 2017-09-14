@@ -246,7 +246,7 @@ static int get_producer_data(mlt_properties filter_p, mlt_properties frame_p, tw
             strncpy(buff, d + i_beg + len_beg, len);
 
             twdata * data = twdata_init();
-            tw_setRawString(data->tw, buff);
+            tw_setPattern(data->tw, buff);
 
             /*int res =*/ tw_parse(data->tw);
 
@@ -324,9 +324,7 @@ static int update_producer(mlt_frame frame, mlt_properties frame_p, twcont * con
     {
         twdata * data = cont->arr[i];
         int len = data->idx_end - data->idx_beg;
-        char * buff_render = malloc(len+1);
-        memset(buff_render, 0, len+1);
-        tw_render(data->tw, pos, buff_render, len);
+        const char * buff_render = tw_render(data->tw, pos);
         int len_render = strlen(buff_render);
 
         char * tmp_buff = malloc(len_data+1);
@@ -334,8 +332,6 @@ static int update_producer(mlt_frame frame, mlt_properties frame_p, twcont * con
         strncpy(buff_data + data->idx_beg, buff_render, len_render);
         strcpy(buff_data + data->idx_beg + len_render, tmp_buff + data->idx_end);
         free(tmp_buff);
-
-        free(buff_render);
     }
     mlt_properties_set( producer_properties, cont->data_field, buff_data );
 

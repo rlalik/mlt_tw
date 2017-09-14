@@ -290,7 +290,7 @@ static int update_producer(mlt_frame frame, mlt_properties frame_p, twcont * con
     if (cont->init == 0)
         return 0;
 
-    mlt_position pos = mlt_frame_get_position( frame );
+    mlt_position pos = mlt_frame_original_position( frame );
 
     mlt_properties producer_properties = NULL;
     if (cont->producer_type == 1)

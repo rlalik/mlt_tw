@@ -3,7 +3,7 @@
  * \brief tractor service class
  * \see mlt_tractor_s
  *
- * Copyright (C) 2003-2016 Meltytech, LLC
+ * Copyright (C) 2003-2017 Meltytech, LLC
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -383,6 +383,21 @@ static int producer_get_image( mlt_frame self, uint8_t **buffer, mlt_image_forma
 	mlt_properties_set_data( properties, "movit.convert.fence",
 		mlt_properties_get_data( frame_properties, "movit.convert.fence", NULL ),
 		0, NULL, NULL );
+	mlt_properties_set_data( properties, "movit.convert.texture",
+		mlt_properties_get_data( frame_properties, "movit.convert.texture", NULL ),
+		0, NULL, NULL );
+	mlt_properties_set_int( properties, "movit.convert.use_texture", mlt_properties_get_int( frame_properties, "movit.convert.use_texture" ) );
+	int i;
+	for ( i = 0; i < mlt_properties_count( frame_properties ); i++ )
+	{
+		char *name = mlt_properties_get_name( frame_properties, i );
+		if ( name && !strncmp( name, "_movit ", 7 ) ) {
+			mlt_properties_set_data( properties, name,
+				mlt_properties_get_data_at( frame_properties, i, NULL ),
+				0, NULL, NULL );
+		}
+	}
+
 	data = mlt_frame_get_alpha( frame );
 	if ( data )
 	{
@@ -465,10 +480,14 @@ static int producer_get_frame( mlt_producer parent, mlt_frame_ptr frame, int tra
 			mlt_deque data_queue = mlt_deque_init( );
 
 			// Used to garbage collect all frames
-			char label[ 30 ];
+			char label[64];
 
 			// Get the id of the tractor
 			char *id = mlt_properties_get( properties, "_unique_id" );
+			if ( !id ) {
+				mlt_properties_set_int64( properties, "_unique_id", (int64_t) properties );
+				id = mlt_properties_get( properties, "_unique_id" );
+			}
 
 			// Will be used to store the frame properties object
 			mlt_properties frame_properties = NULL;
@@ -530,7 +549,7 @@ static int producer_get_frame( mlt_producer parent, mlt_frame_ptr frame, int tra
 				}
 
 				// We store all frames with a destructor on the output frame
-				sprintf( label, "_%s_%d", id, count ++ );
+				snprintf( label, sizeof(label), "mlt_tractor %s_%d", id, count ++ );
 				mlt_properties_set_data( frame_properties, label, temp, 0, ( mlt_destructor )mlt_frame_close, NULL );
 
 				// We want to append all 'final' feeds to the global queue
